@@ -176,7 +176,7 @@ describe('logs controller lifecycle wiring', () => {
   );
 
   test('invalidates synchronously on connection identity/config changes and unmount', () => {
-    for (const owner of [page, source]) {
+    for (const owner of [page, source].map((text) => text.replace(/\r\n/g, '\n'))) {
       expect(owner).toContain('useAuthStore.subscribe');
       expect(owner).toContain('next.apiBase === previous.apiBase');
       expect(owner).toContain('next.managementKey === previous.managementKey');
