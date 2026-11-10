@@ -33,8 +33,16 @@ export interface BuiltInOAuthProviderCard {
   flow: OAuthFlowKind;
   /** 区分同品牌的不同站点，磁贴副行展示。 */
   domain?: string;
-  /** 赞助商：画廊首行大卡 + 品牌蓝强调，带注册推广链接（目前是 Kimi 两站）。 */
-  sponsor?: { signUpUrl: string };
+  /**
+   * 赞助商：同品牌的各站点合并进画廊首行的一张品牌卡，每站一个登录入口 + 开放平台注册链接
+   * （目前是 Kimi 国内站 / 国际站）。`siteKey` 是卡内站点短名（品牌名由卡片标题承载）。
+   */
+  sponsor?: SponsorSite;
+}
+
+export interface SponsorSite {
+  signUpUrl: string;
+  siteKey: string;
 }
 
 export interface PluginOAuthProviderCard {
@@ -56,7 +64,7 @@ export const OAUTH_PROVIDERS: BuiltInOAuthProviderCard[] = [
     icon: { light: iconKimiTileBlack, dark: iconKimiTileWhite },
     flow: 'device',
     domain: 'kimi.com',
-    sponsor: { signUpUrl: KIMI_CHINESE_AFFILIATE_URL },
+    sponsor: { signUpUrl: KIMI_CHINESE_AFFILIATE_URL, siteKey: 'auth_login.sponsor_site_china' },
   },
   {
     kind: 'builtin',
@@ -66,7 +74,10 @@ export const OAUTH_PROVIDERS: BuiltInOAuthProviderCard[] = [
     icon: { light: iconKimiTileBlack, dark: iconKimiTileWhite },
     flow: 'device',
     domain: 'kimi.ai',
-    sponsor: { signUpUrl: KIMI_INTERNATIONAL_AFFILIATE_URL },
+    sponsor: {
+      signUpUrl: KIMI_INTERNATIONAL_AFFILIATE_URL,
+      siteKey: 'auth_login.sponsor_site_international',
+    },
   },
   {
     kind: 'builtin',
@@ -134,35 +145,42 @@ export const supportsManualCallback = (provider: OAuthProviderCard): boolean =>
 
 export const isSponsor = (
   provider: OAuthProviderCard
-): provider is BuiltInOAuthProviderCard & { sponsor: { signUpUrl: string } } =>
+): provider is BuiltInOAuthProviderCard & { sponsor: SponsorSite } =>
   provider.kind === 'builtin' && Boolean(provider.sponsor);
 
 export const resolveThemedIcon = (icon: ThemedIcon, theme: 'light' | 'dark'): string =>
   typeof icon === 'string' ? icon : icon[theme];
 
+/**
+ * 一个插件可能声明多个登录入口（各自带标题与图标），每个入口一张卡；
+ * v8.0.49 之前只有单个 `oauth_provider`，那时仍然只出一张卡。
+ */
 export const buildPluginOAuthProviderCards = (
   plugins: PluginListEntry[],
   apiBase: string
 ): PluginOAuthProviderCard[] => {
   const seenProviders = new Set(BUILTIN_PROVIDER_IDS);
   return plugins.flatMap((plugin) => {
-    const provider = plugin.oauthProvider;
-    if (
-      !plugin.supportsOAuth ||
-      !plugin.effectiveEnabled ||
-      !provider ||
-      seenProviders.has(provider)
-    ) {
-      return [];
-    }
-    seenProviders.add(provider);
-    return [
-      {
-        kind: 'plugin' as const,
-        id: provider,
-        title: getPluginTitle(plugin),
-        icon: resolvePluginAssetURL(plugin.logo || plugin.metadata?.logo || '', apiBase),
-      },
-    ];
+    if (!plugin.supportsOAuth || !plugin.effectiveEnabled) return [];
+    const declared = plugin.oauthProviders?.length
+      ? plugin.oauthProviders
+      : plugin.oauthProvider
+        ? [plugin.oauthProvider]
+        : [];
+    const pluginTitle = getPluginTitle(plugin);
+    const pluginLogo = plugin.logo || plugin.metadata?.logo || '';
+    return declared.flatMap((provider) => {
+      if (seenProviders.has(provider)) return [];
+      seenProviders.add(provider);
+      const entry = plugin.oauthProviderEntries?.find((item) => item.identifier === provider);
+      return [
+        {
+          kind: 'plugin' as const,
+          id: provider,
+          title: entry?.name?.trim() || pluginTitle,
+          icon: resolvePluginAssetURL(entry?.logo?.trim() || pluginLogo, apiBase),
+        },
+      ];
+    });
   });
 };
