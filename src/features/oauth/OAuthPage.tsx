@@ -4,10 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { useRevealGroup } from '@/hooks/motion';
 import { useAuthStore, useThemeStore } from '@/stores';
 import iconVertex from '@/assets/icons/vertex.svg';
+import iconCodex from '@/assets/icons/codex.svg';
+import { KIMI_DISPLAY_NAME } from '@/features/providers/kimi';
 import { OAuthHeader } from './components/OAuthHeader';
 import { ProviderTile } from './components/ProviderTile';
+import { SponsorCard, type SponsorCardSite } from './components/SponsorCard';
 import { OAuthFlowDialog, type DialogHeading } from './components/OAuthFlowDialog';
 import { VertexImportDialog } from './components/VertexImportDialog';
+import { SiwcBindDialog } from './components/SiwcBindDialog';
 import {
   useOAuthFlows,
   usePluginOAuthProviders,
@@ -52,6 +56,13 @@ export function OAuthPage() {
   const focusedRef = useRef<string | null>(null);
   const [dialog, setDialog] = useState<DialogTarget | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [siwcOpen, setSiwcOpen] = useState(false);
+  // 每次打开换新 key 重新挂载（全新选择与会话）；关闭后保持挂载，让退出动画走完
+  const [siwcKey, setSiwcKey] = useState(0);
+  const openSiwc = () => {
+    setSiwcKey((key) => key + 1);
+    setSiwcOpen(true);
+  };
 
   const flows = useOAuthFlows({
     providerCards,
@@ -131,8 +142,23 @@ export function OAuthPage() {
   const providerCount = providerCards.length;
   const sponsorCards = providerCards.filter(isSponsor);
   const regularCards = providerCards.filter((card) => !isSponsor(card));
+  // 赞助商卡占级联的第 0 位，其余磁贴顺延
+  const tileIndexOffset = sponsorCards.length > 0 ? 1 : 0;
 
-  const renderTile = (card: OAuthProviderCard) => {
+  const sponsorSites: SponsorCardSite[] = sponsorCards.map((card) => {
+    const status = flows.states[card.id]?.status;
+    return {
+      id: card.id,
+      name: labelOf(card),
+      region: t(card.sponsor.siteKey),
+      domain: card.domain ?? '',
+      status,
+      statusLabel: tileStatusLabel(status),
+      signUpUrl: card.sponsor.signUpUrl,
+    };
+  });
+
+  const renderTile = (card: OAuthProviderCard, index: number) => {
     const status = flows.states[card.id]?.status;
     return (
       <ProviderTile
@@ -140,10 +166,9 @@ export function OAuthPage() {
         label={labelOf(card)}
         caption={captionOf(card)}
         icon={iconOf(card)}
-        index={providerCards.indexOf(card)}
+        index={index + tileIndexOffset}
         status={status}
         statusLabel={tileStatusLabel(status)}
-        sponsor={sponsorOf(card)}
         onOpen={() => openProvider(card)}
       />
     );
@@ -160,9 +185,19 @@ export function OAuthPage() {
         addedCount={flows.addedCount}
       />
 
-      {/* 赞助商独占首行（大卡 + 品牌蓝），其余提供商在下方紧凑网格 */}
+      {/* 赞助商独占首行：一张品牌卡收拢两站入口，其余提供商在下方紧凑网格 */}
       {sponsorCards.length > 0 && (
-        <div className={styles.sponsorGrid}>{sponsorCards.map(renderTile)}</div>
+        <SponsorCard
+          title={KIMI_DISPLAY_NAME}
+          caption={t('auth_login.sponsor_kimi_caption')}
+          icon={iconOf(sponsorCards[0])}
+          signUpLabel={t('auth_login.sponsor_sign_up')}
+          sites={sponsorSites}
+          onOpen={(siteId) => {
+            const card = sponsorCards.find((sponsor) => sponsor.id === siteId);
+            if (card) openProvider(card);
+          }}
+        />
       )}
       <div className={styles.grid}>{regularCards.map(renderTile)}</div>
 
@@ -175,8 +210,15 @@ export function OAuthPage() {
             label={VERTEX_LABEL}
             caption={t('vertex_import.file_label')}
             icon={iconVertex}
-            index={providerCount}
+            index={regularCards.length + tileIndexOffset}
             onOpen={openVertex}
+          />
+          <ProviderTile
+            label={t('siwc.bind')}
+            caption={t('siwc.tile_caption')}
+            icon={iconCodex}
+            index={regularCards.length + tileIndexOffset + 1}
+            onOpen={openSiwc}
           />
         </div>
       </section>
@@ -214,6 +256,15 @@ export function OAuthPage() {
         onViewAuthFiles={viewAuthFiles}
         onClose={closeDialog}
       />
+
+      {siwcKey > 0 && (
+        <SiwcBindDialog
+          key={siwcKey}
+          open={siwcOpen}
+          onClose={() => setSiwcOpen(false)}
+          onViewAuthFiles={viewAuthFiles}
+        />
+      )}
     </div>
   );
 }
